@@ -32,53 +32,15 @@ var_update <- function(lg_X, K, npc, lambda1=0.1, lambda2=0.1,
   #  return(order(H[i, ], decreasing = TRUE)[1])
   #})
   
-if(FALSE){
-  pars = sapply(1:dim(lg_X)[2], function(i) {
-    count_nzero = setdiff(lg_X[, i], 0)
-    mu = mean(count_nzero)
-    mu[is.na(mu)] = 0
-    sd = sd(count_nzero)
-    sd[is.na(sd)] = 0
-    cv = sd/mu
-    cv[is.na(cv)] = 0
-    return(c(mu, cv))
-  })
-  
-  mu = pars[1, ]
-  cv = pars[2, ]
-  high_var_genes = which(mu >= quantile(mu, 0.25) & cv >= quantile(cv, 0.25))
-  if(length(high_var_genes) < 500){
-    high_var_genes = 1:dim(lg_X)[2]}
-  count_hv = lg_X[, high_var_genes]
-  pca = prcomp(count_hv)
-  eigs = (pca$sdev)^2
-  var_cum = cumsum(eigs)/sum(eigs)
-  pr_num = max(which.max(var_cum) > 0.4, K)
-  mat_pcs = pca$x[, 1:pr_num]
-  dist = sapply(1:N, function(i){
-    d = sapply(1:i, function(j){
-      sse = sum((mat_pcs[i, ] - mat_pcs[j, ])^2)
-      sqrt(sse)
-    })
-    return(c(d, rep(0, N - i)))
-  })
-  dist = dist + t(dist)
-  neighbors = list()
-  neighbors$neighbors = sapply(1:N, function(i){
-    nei = rep(0, N)
-    nei[order(dist[i, ])[1:round(N/4)]] = 1
-    return(nei)
-  })
-  neighbors$dist_list = lapply(1:N, function(i){
-    dist[i, ]
-  })    #* 
-}
   
   #H = matrix(runif(dim(lg_X)[1]*K), N, K)
   
   imp_iter = 1
-  while(imp_iter <= iteration){
-    imp_res = imputing_update(log(exp(lg_X) + 0.01), clust, neighbors, imp_iteration=imp_iteration, out_file=paste0(output, "imp_res/", imp_iter, "th_impres.rds"), res_save=res_save)
+  while(imp_iter <= iteration){    #* par-iteration is unnessary for MGGE any more
+    imp_res = imputing_update(log(exp(lg_X) + 0.01), clust, neighbors, 
+                              imp_iteration=imp_iteration, 
+                              out_file=paste0(output, "imp_res/", imp_iter, "th_impres.rds"), 
+                              res_save=res_save)
     imp_X = imp_res$imp_X
     imp_X = log(exp(imp_X) - 0.01)   # log-tran 1.01 for imputing, 1.0 for clustering
     
@@ -122,8 +84,10 @@ if(FALSE){
   H[H <= 0] = 1e-10
   W = matrix(runif(N * npc), N, npc) 
   V = matrix(runif(P * npc), npc, P) 
-  clust_res = clustering_update(imp_X, K, npc, lambda1, lambda2, W=W, V=V, H=H, D=D, S=local_sim, iteration=clust_iteration,
-                                out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), res_save=res_save)
+  clust_res = clustering_update(imp_X, K, npc, lambda1, lambda2, W=W, V=V, 
+                                H=H, D=D, S=local_sim, iteration=clust_iteration,
+                                out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), 
+                                res_save=res_save)
   #clust_res = clustering_update(imp_X, K, npc, lambda1, lambda2, W=W, V=V, H=H, D=D, L=L, iteration=clust_iteration,
    #                             out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), res_save=res_save)
   
@@ -152,19 +116,30 @@ clustering_update <- function(lg_X, K, npc, lambda1, lambda2, W=NULL,
   
   # initialization
   J_set = NULL
-
-
+  J_DR = NULL
+  J_HE = NULL
+  J_LE = NULL
+  par1 = NULL
+  par2 = NULL
   iter = 1
   N = dim(W)[1]
+  L = diag(colSums(S)) - S
+  Xe = sqrt(eigen(lg_X %*% t(lg_X))$values)[1]
+  Le = eigen(L)$values[1]
+  rm(L)
+  #*
+  lambda1 = 0.1
+  lambda2 = 0.1
   
-  while(iter <= iteration){
+  
+  for(iter in 1:iteration){
     cat(paste0("### Updating ", iter, "th round of ", iteration, "\n"))
     cat(paste0(strrep("#", round(30*iter/iteration)), " ", 
                100*signif(iter/iteration, digits=2), "%\n"))
     cat("### updating W...\n")
     #*
     LH = H %*% t(H)
-    sec_ord_g = lambda2 * LH %*% W + D^2 %*% W %*% V %*% t(V)
+    sec_ord_g = lambda1 * LH %*% W + D^2 %*% W %*% V %*% t(V)
     g_W = -D^2 %*% lg_X %*% t(V) + sec_ord_g#* 0.36s
     
     ## the N*k * N*k Hessian matrix is corresponse to Wij which expand by col
@@ -179,6 +154,12 @@ clustering_update <- function(lg_X, K, npc, lambda1, lambda2, W=NULL,
     cat("### updating V...\n")
     V = V * ((t(W) %*% D^2 %*% lg_X) / (t(W) %*% D^2 %*% W %*% V))
     
+    #* normalize W & V
+    norms = NormalizeUV(W, V)
+    W = norms$U
+    V = norms$V
+    rm(norms)
+    
     
     cat("### updating H...\n")
     #*
@@ -188,22 +169,33 @@ clustering_update <- function(lg_X, K, npc, lambda1, lambda2, W=NULL,
     #H = eigen(0.5*lambda1 * d + lambda2 * S)$vectors[, (N-K+1):N]
     D_s = Matrix(diag(colSums(S)), sparse = TRUE)
     H = H * ((lambda2 * S %*% H) / ((lambda1 / 2 * d + lambda2 * D_s) %*% H))
-    #H[H <= 0] = 1e-10
+    
+    
+    #** update parameters
+    if(iter %% 10 == 0){
+      He = sqrt(eigen(H %*% t(H))$values)[1]
+      Ve = sqrt(eigen(V %*% t(V))$values)[1]
+      lambda1 = Xe / (He + Ve)
+      
+      de = eigen(d)$values[1]
+      lambda2 = (lambda1 * d) / (2 * Le)
+      par1[((iter-1)*10 + 1):(iter*10)] = lambda1
+      par2[((iter-1)*10 + 1):(iter*10)] = lambda2
+    }
     
     
     # cost calculation
     # if verbose
-    J = norm(D %*% (lg_X - W %*% V), 'F')^2 + lambda1 * sum(diag(t(W) %*% LH %*% W)) + 
-      lambda2 * sum(diag(t(H) %*% S %*% H))
+    J_DR[iter] = norm(D %*% (lg_X - W %*% V), 'F')^2
+    J_HE[iter] = sum(diag(t(W) %*% LH %*% W))
+    J_LE[iter] = sum(diag(t(H) %*% S %*% H))
     cat("### Current cost:", J, "\n")
     
     
-    if(iter == 1){
-      J_set = J
-    }else{
+    J_set[iter] = J_DR[iter] + lambda1 * J_HE[iter] + lambda2 * J_LE[iter]
+    if(iter > 1){
       var_J = abs(J - J_set[length(J_set)])
       J_set = c(J_set, J)
-      
       
       # convergence check
       if(var_J <= thre){
@@ -235,36 +227,39 @@ clustering_update <- function(lg_X, K, npc, lambda1, lambda2, W=NULL,
         return(res)
       }
     }
-    iter = iter + 1
   }
   
   #cluster = kmeans(H, K)$cluster
   cluster = sapply(1:N, function(i){
     which.max(H[i, ])
   })
-  dist = sapply(1:N, function(i){
-    d = sapply(1:i, function(j){
-      dist = sum((W[i, ] - W[j, ])^2)   #* F-norm
-      return(dist)
-    })
-    return(c(d, rep(0, N-i)))
-  })
+
   
-  dist = dist + t(dist)
-  dist_list = lapply(1:N, function(i){
-    dist[i, ]
-  })
-  neighbors = list()
-  neighbors$dist_list = dist_list
-  neighbors$neighbors = t(sapply(1:N, function(i){
-    nei = rep(0, N)
-    id = union(order(dist_list[[i]][1:round(N/10)]), 
-               which(cluster==cluster[i]))
-    nei[id] = 1
-    return(nei)
-  }))
-  res = list(W = W, V = V, H = H, cluster = cluster, 
-             neighbors = neighbors, J_set = J_set)
+  if(FALSE){
+    dist = colSums(W^2)
+    dist = matrix(dist, nrow=N, ncol=N)
+    dist = dist + t(dist) - 2*W %*% t(W)
+    dist_list = lapply(1:N, function(i){
+      dist[i, ]
+    })
+    
+    neighbors = list()
+    neighbors$dist_list = dist_list
+    neighbors$neighbors = t(sapply(1:N, function(i){
+      nei = rep(0, N)
+      id = union(order(dist_list[[i]][1:round(N/10)]), 
+                 which(cluster==cluster[i]))
+      nei[id] = 1
+      return(nei)
+    }))
+  }
+  
+
+  
+  res = list(W = W, V = V, H = H, cluster = cluster,
+             J_set = J_set, 
+             J_DR = J_DR, J_HE = J_HE, J_LE = J_LE,
+             lambda1 = par1, lambda2 = par2)
   if(res_save){
     saveRDS(res, out_file)
   }
