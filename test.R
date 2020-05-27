@@ -7,6 +7,9 @@ source("imputing_update.R")
 source("informative_gene_selection.R")
 source("NormalizeUV.R")
 source("constructW.R")
+source("construct_locsim.R")
+source("proj_sim.R")
+
 
 library(Matrix)
 library(parallel)
@@ -20,7 +23,7 @@ datas = c("Biase/Biase.rds", "Deng_GSE45719/mouse_embryo.rds", "Zeisel/Zeisel.rd
           "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds")
 data_path = "E:/Project/dataset/Bioinformatics/scRNA/Selected data/"
 
-for(i in c(3:6)){
+for(i in c(1)){
   try({
   s = Sys.time()
   
@@ -32,33 +35,31 @@ for(i in c(3:6)){
   message(paste0("## Loading raw data of ",N , "*", P, " and labels...\n"))
   
   
-  ## filter zero gene & cell and remain high_var gene
-  ## as well as normalization & log-transform without pseudo count
+  ## gene filter & normalization
   message("## Data nomalization and log-transformation...\n")
-  lg_X = data_normalize(X, N, P, gt, mu_probs=0.2, cv_probs=0.2)
+  lg_X = data_normalize(X, N, P, gt, mu_probs=0.2, cv_probs=0.2)   #* 0.2 by default with gene select
   gt = lg_X$gt
   lg_X = as.matrix(lg_X$count_hv)
   
   #lg_X = informative_gene_selection(lg_X, delta=0.7)
-  
   data_object = CreateSeuratObject(counts = Matrix(t(lg_X), sparse=TRUE),
                             project = "MGGE", min.cells = 3)
-  ## Normalizing
   data_object = NormalizeData(data_object, normalization.method = "LogNormalize", scale.factor = 10000)
-  
-  ## Highly variable feature selection
+  ## gene selection
   #** 2\select about thousand genes
-  data_object = FindVariableFeatures(data_object, selection.method = "vst", nfeatures = 3000)
-  id = VariableFeatures(data_object)
-  if(all(id %in% colnames(lg_X))){
+  data_object = FindVariableFeatures(data_object, selection.method = "vst", nfeatures = 6000)
+  gene_id = VariableFeatures(data_object)
+  if(all(gene_id %in% colnames(lg_X))){
   }else{
-    id = id[-which(!(id %in% colnames(lg_X)))]
+    gene_id = gene_id[-which(!(gene_id %in% colnames(lg_X)))]
   }
   
-  message("## Finally choose ", length(id), " genes for MGGE...")
+  message("## Finally choose ", length(gene_id), " genes for MGGE...")
 
-  lg_X = lg_X[, id]
+  #lg_X = lg_X[, gene_id]
+  
   rm(X, data_object)
+  
 
   
   ##* cluster number estimation
@@ -91,13 +92,14 @@ for(i in c(3:6)){
     S = F %*% t(F)    
   }
   
-  output = strsplit(datas[i], split="/")[[1]][1]
-  S = readMat(paste0("./dataset/", output, "_W.mat"))$W
   
-  
-  res <- var_update(lg_X, K, npc, S=S, lambda1=2, lambda2=2, 
-                    iteration=1, clust_iteration=300, imp_iteration=3000, 
+  #* 9\ ensemble on diff gene_dim
+  M = 1    # num of view
+  res <- var_update(lg_X, K, npc, gene_id, M, lambda1=2, lambda2=2, 
+                    iteration=1, clust_iteration=300, imp_iteration=30, 
                     res_save=FALSE)
+  
+    
   clust = res$cluster
   nmi = NMI(clust, gt)
   ari = ARI(clust, gt)
@@ -112,6 +114,6 @@ for(i in c(3:6)){
   # save res
   output = strsplit(datas[i], split="/")[[1]][1]
   
-  saveRDS(res, paste0("result/test/", output, 'normal_W.rds'))
+  saveRDS(res, paste0("result/locsim/", output, '.rds'))
   })
 }

@@ -3,7 +3,7 @@ library(Matrix)
 library(bignmf)
 
 
-var_update <- function(lg_X, K, npc, S =S, lambda1=0.1, lambda2=0.1, 
+var_update <- function(lg_X, K, npc, gene_id, M, lambda1=0.1, lambda2=0.1, 
                        thre_J=1e-4, drop_thre=0.5, iteration=1, 
                        clust_iteration=100, imp_iteration=100, 
                        output="result/", res_save=TRUE){
@@ -16,70 +16,56 @@ var_update <- function(lg_X, K, npc, S =S, lambda1=0.1, lambda2=0.1,
     dir.create(paste0(output, "imp_res"))
   }
   
-  N = dim(lg_X)[1]
-  P = dim(lg_X)[2]
-  # generate cluster set & neighbors
-  NN = as.integer(log10(N))
-  NN = min(50, max(10, NN))
-  res = constructW(lg_X, NN)
-  W = res$W
-  neighbors = res$neighbors
 
-  L = diag(colSums(t(W))) - W
+    N = dim(lg_X)[1]
+    # generate cluster set & neighbors
+    NN = as.integer(log10(N))
+    NN = min(50, max(10, NN))
+    res = constructW(lg_X, NN)
+    W = res$W
+    neighbors = res$neighbors
   
-  H = eigen(L)$vectors[, (N-K):(N-1)]
-  H = Re(H)
-  #* 4\guide clust for imp
-  clust = kmeans(H, K)$cluster
-  #clust = rep(1, N)
-  
-  #clust = sapply(1:N, function(i){    
-  #  return(order(H[i, ], decreasing = TRUE)[1])
-  #})
-  
-  
-  #H = matrix(runif(dim(lg_X)[1]*K), N, K)
-  
-  imp_iter = 1
-  while(imp_iter <= iteration){    #- par-iteration is unnessary for MGGE any more
-    imp_res = imputing_update(log(exp(lg_X) + 0.01), clust, neighbors, 
+    L = diag(colSums(t(W))) - W
+    
+    H = eigen(L)$vectors[, (N-K):(N-1)]
+    H = Re(H)
+    #* 4\guide clust for imp
+    clust = kmeans(H, K)$cluster
+    #clust = rep(1, N)
+    
+    #clust = sapply(1:N, function(i){    
+    #  return(order(H[i, ], decreasing = TRUE)[1])
+    #})
+    
+    
+    #H = matrix(runif(dim(lg_X)[1]*K), N, K)
+    
+    imp_iter = 1
+    local_sim = list()
+    for(i in c(1:M)){
+    #- par-iteration is unnessary for MGGE any more
+    cat(paste0("## carrying ", i, "th local_sim constructing...\n"))
+    id = (1+(i-1)*1000):min(length(gene_id), i*1000)
+    imp_res = imputing_update(log(exp(lg_X[, id]) + 0.01), clust, neighbors, 
                               imp_iteration=imp_iteration, 
                               out_file=paste0(output, "imp_res/", imp_iter, "th_impres.rds"), 
                               res_save=res_save)
     imp_X = imp_res$imp_X
-    imp_X = log(exp(imp_X) - 0.01)   # log-tran 1.01 for imputing, 1.0 for clustering
-    
-    imp_X = Matrix(imp_X, sparse=TRUE)    
+    #imp_X = log(exp(imp_X) - 0.01)   # log-tran 1.01 for imputing, 1.0 for clustering
+    #imp_X = Matrix(imp_X, sparse=TRUE)    
     
     # accumulate update with normalized local_sim
-    if(imp_iter == 1){
-      local_sim = imp_res$local_sim
-    }else{
-      local_sim = imp_res$local_sim + local_sim
-      local_sim = t(apply(local_sim, 1, function(i){
-        if(max(i) != min(i)){
-          i = (i - min(i)) / (max(i) - min(i))
-        }
-        return(i)
-      }))
-    }
-    local_sim = 0.5*(local_sim + t(local_sim))
+    #local_sim = imp_res$local_sim
     
-    #** 3\test of best local_sim
-    local_sim = S
     
     # dropout weight based on drop_genes' number
-    if(imp_iter == 1){
-      droprate = imp_res$droprate
-    }else{
-      droprate = imp_res$droprate + droprate
-    }  
-    D = rowSums(droprate)
-    D = diag((P - D) / P)   
-    D = Matrix(D, sparse=TRUE)
-    
-    imp_iter = imp_iter + 1
+    droprate = imp_res$droprate
+
+
+  #** 3\test of best local_sim
+  local_sim[[i]] = construct_locsim(imp_X, droprate, NN)
   }
+  
   
   D = Matrix(diag(1, N), sparse=TRUE)   #** dropout weight
   ### Clustering update
@@ -88,13 +74,13 @@ var_update <- function(lg_X, K, npc, S =S, lambda1=0.1, lambda2=0.1,
   
   #imp_X = informative_gene_selection(imp_X, delta=0.7)   #- select informative genes for clustering
   
-
+  P = length(id)
   H[H <= 0] = 1e-10
   W = matrix(runif(N * npc), N, npc) 
   V = matrix(runif(P * npc), npc, P) 
   #* 7\ using imp_X
-  clust_res = clustering_update(imp_X, K, npc, lambda1, lambda2, W=W, V=V, 
-                                H=H, D=D, S=local_sim, iteration=clust_iteration,
+  clust_res = clustering_update(lg_X[, id], K, npc, lambda1, lambda2, W=W, V=V, 
+                                H=H, D=D, local_sim=local_sim, iteration=clust_iteration,
                                 out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), 
                                 res_save=res_save)
   #clust_res = clustering_update(imp_X, K, npc, lambda1, lambda2, W=W, V=V, H=H, D=D, L=L, iteration=clust_iteration,
@@ -103,6 +89,8 @@ var_update <- function(lg_X, K, npc, S =S, lambda1=0.1, lambda2=0.1,
   H = clust_res$H
   V = clust_res$V
   W = clust_res$W
+  S = clust_res$S
+  alpha = clust_res$alpha
   cluster = clust_res$cluster
   #neighbors = clust_res$neighbors
   res_J = clust_res$J
@@ -114,20 +102,20 @@ var_update <- function(lg_X, K, npc, S =S, lambda1=0.1, lambda2=0.1,
   
 
   res = list(cluster=cluster, guide_cluster = clust, lambda1 = lambda1, lambda2 = lambda2,
-             local_sim = local_sim, J_DR = J_DR, J_HE = J_HE, 
-             J_LE = J_LE, J = res_J, W = W, V = V, H = H)  
-  
+             droprate=droprate, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE, J = res_J, 
+             W = W, V = V, H = H, S_set = local_sim, S = S, weight = alpha)  
+
 #  res = list(cluster=cluster, neighbors=neighbors, 
 #             imp_X=imp_X, droprate=droprate, local_sim = local_sim, 
 #             J = res_J, W = W, V = V, H = H)
   cat("# MGGE iteration complete!\n")
-  saveRDS(res, paste0(output, "MGGE_res.rds"))
+  #saveRDS(res, paste0(output, "MGGE_res.rds"))
   return(res)
 }
 
 
 clustering_update <- function(lg_X, K, npc, lambda1, lambda2, W=NULL, 
-                              V=NULL, H=NULL, D=NULL, S=NULL, iteration=50, 
+                              V=NULL, H=NULL, D=NULL, local_sim=NULL, iteration=50, 
                               thre=1e-4, out_file="result/clust_res/res.rds", 
                               res_save=TRUE){
   cat("## clustering vars updating...\n")
@@ -144,6 +132,8 @@ clustering_update <- function(lg_X, K, npc, lambda1, lambda2, W=NULL,
   L = diag(colSums(S)) - S
   Xe = sqrt(eigen(lg_X %*% t(lg_X))$values)[1]
   Le = eigen(L)$values[1]
+  S = Reduce('+', local_sim) / length(local_sim)
+  alpha = rep(1/M, M)
   rm(L)
   
   
@@ -189,6 +179,26 @@ clustering_update <- function(lg_X, K, npc, lambda1, lambda2, W=NULL,
     norms = rowSums(H)    #* 5\row based H normalize
     norms[norms == 0] = 1e-10
     H = H / matrix(norms, N, K)
+    
+    
+    cat('### updating S...\n')
+    d_H = matrix(rowSums(H^2), N, N) + t(matrix(rowSums(H^2), N, N)) - 2* H %*% t(H)
+    A = lapply(1:length(local_sim), function(i){
+      local_sim[[i]] * alpha[i]
+      })
+    A = Reduce('+', A)
+    S = t(sapply(1:N, function(i){
+      id = which(A[i, ] > 0)
+      ad = (A[i, id] - 0.25*lambda2*d_H[i, id]) / sum(alpha)
+      res = proj_sim(ad)
+      return(res)
+    }))
+    
+
+    cat('### updating alpha...\n')
+    alpha = sapply(1:M, function(i){
+      alpha[i] = 0.5 / norm(S - local_sim[[i]], 'F')
+    })
     
     
     #** 6\update parameters
@@ -277,9 +287,8 @@ clustering_update <- function(lg_X, K, npc, lambda1, lambda2, W=NULL,
 
   
   res = list(W = W, V = V, H = H, cluster = cluster,
-             J = J_set, 
-             J_DR = J_DR, J_HE = J_HE, J_LE = J_LE,
-             lambda1 = par1, lambda2 = par2)   #* lambda save
+             J = J_set, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE,
+             lambda1 = par1, lambda2 = par2, alpha = alpha, S = S)   #* lambda save
   if(res_save){
     saveRDS(res, out_file)
   }
