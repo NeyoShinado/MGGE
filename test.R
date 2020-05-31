@@ -1,14 +1,16 @@
 setwd("E:/Project/Paper_debug/Clustering algorithm/MGGE/")
-source("data_normalize.R")
+
+
 source("npc_cal.R")
-source("localsim_integrated_update.R")
-source("imputing_update.R")
-#source("var_update.R")
-source("informative_gene_selection.R")
-source("NormalizeUV.R")
-source("constructW.R")
-source("construct_locsim.R")
 source("proj_sim.R")
+source("constructW.R")
+source("NormalizeUV.R")
+source("data_normalize.R")
+source("imputing_update.R")
+source("construct_locsim.R")
+source("localsim_integrated_update.R")
+source("informative_gene_selection.R")
+
 
 
 library(Matrix)
@@ -23,7 +25,7 @@ datas = c("Biase/Biase.rds", "Deng_GSE45719/mouse_embryo.rds", "Zeisel/Zeisel.rd
           "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds")
 data_path = "E:/Project/dataset/Bioinformatics/scRNA/Selected data/"
 
-for(i in c(1)){
+for(i in c(3, 6)){
   try({
   s = Sys.time()
   
@@ -47,7 +49,7 @@ for(i in c(1)){
   data_object = NormalizeData(data_object, normalization.method = "LogNormalize", scale.factor = 10000)
   ## gene selection
   #** 2\select about thousand genes
-  data_object = FindVariableFeatures(data_object, selection.method = "vst", nfeatures = 6000)
+  data_object = FindVariableFeatures(data_object, selection.method = "vst", nfeatures = 3000)
   gene_id = VariableFeatures(data_object)
   if(all(gene_id %in% colnames(lg_X))){
   }else{
@@ -56,8 +58,7 @@ for(i in c(1)){
   
   message("## Finally choose ", length(gene_id), " genes for MGGE...")
 
-  #lg_X = lg_X[, gene_id]
-  
+  lg_X = lg_X[, gene_id]
   rm(X, data_object)
   
 
@@ -79,7 +80,7 @@ for(i in c(1)){
   files = list.files("./scImpute/", pattern="*.R")
   sapply(paste0("./scImpute/", files), source)
   
-  
+
   #** 3\test of gt local_sim
   if(FALSE){
     mask = unique(gt)
@@ -93,10 +94,19 @@ for(i in c(1)){
   }
   
   
+  local_sim = readRDS("../cmp_analysis/result/res1.rds")
+  local_sim = lapply(local_sim[[i]], function(j){
+    if(class(j) == "list"){
+      return(j$clust)
+    }
+  })
+  local_sim$res_RaceID = NULL
+  local_sim$res_dropclust = NULL
+  
+  
   #* 9\ ensemble on diff gene_dim
-  M = 1    # num of view
-  res <- var_update(lg_X, K, npc, gene_id, M, lambda1=2, lambda2=2, 
-                    iteration=1, clust_iteration=300, imp_iteration=30, 
+  res <- var_update(lg_X, K, npc, local_sim, lambda1=2, lambda2=2, 
+                    iteration=1, clust_iteration=300, imp_iteration=3000, 
                     res_save=FALSE)
   
     

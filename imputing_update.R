@@ -206,10 +206,12 @@ imputation_wlabel_model = function(count, cluster, neighbors, point, drop_thre, 
   # local-sim uniation
   local_sim = t(apply(local_sim, 1, function(i){
     if(max(i) != min(i)){
-      i = (i - min(i)) / (max(i) - min(i))
+      #i = (i - min(i)) / (max(i) - min(i))
+      i = i / sum(i)
     }
     return(i)
   }))
+  local_sim = (local_sim + t(local_sim)) / 2
   
   return(list(count_imp = count_imp, droprate=droprate, local_sim=local_sim))
 

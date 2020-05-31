@@ -13,10 +13,11 @@ construct_locsim <- function(X, droprate, NN){
   
   local_sim = t(sapply(1:N, function(i){
     valid_X = X * t(matrix(droprate[i, ], P, N))
-    local_sim = (valid_X[i, ] * gene_weight) %*% t(valid_X)
+    #local_sim = (valid_X[i, ] * gene_weight) %*% t(valid_X)
+    local_sim = (valid_X[i, ] %*% t(valid_X))
     
     id = order(local_sim, decreasing = TRUE)[1:NN]
-    local_sim[id] = 1
+    #local_sim[id] = 1
     local_sim[setdiff(c(1:N), id)] = 0
     
     #local_sim = local_sim / sqrt(sum(local_sim^2)) #* F-norm. sum-norm
