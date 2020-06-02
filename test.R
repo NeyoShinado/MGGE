@@ -12,7 +12,6 @@ source("localsim_integrated_update.R")
 source("informative_gene_selection.R")
 
 
-
 library(Matrix)
 library(parallel)
 library(aricode)
@@ -24,106 +23,115 @@ library(R.matlab)
 datas = c("Biase/Biase.rds", "Deng_GSE45719/mouse_embryo.rds", "Zeisel/Zeisel.rds", 
           "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds")
 data_path = "E:/Project/dataset/Bioinformatics/scRNA/Selected data/"
-
-for(i in c(3, 6)){
-  try({
-  s = Sys.time()
-  
-  X = readRDS(paste0(data_path, datas[i]))
-  gt = X$gt
-  X = X$expr
-  N = nrow(X)
-  P = ncol(X)
-  message(paste0("## Loading raw data of ",N , "*", P, " and labels...\n"))
-  
-  
-  ## gene filter & normalization
-  message("## Data nomalization and log-transformation...\n")
-  lg_X = data_normalize(X, N, P, gt, mu_probs=0.2, cv_probs=0.2)   #* 0.2 by default with gene select
-  gt = lg_X$gt
-  lg_X = as.matrix(lg_X$count_hv)
-  
-  #lg_X = informative_gene_selection(lg_X, delta=0.7)
-  data_object = CreateSeuratObject(counts = Matrix(t(lg_X), sparse=TRUE),
-                            project = "MGGE", min.cells = 3)
-  data_object = NormalizeData(data_object, normalization.method = "LogNormalize", scale.factor = 10000)
-  ## gene selection
-  #** 2\select about thousand genes
-  data_object = FindVariableFeatures(data_object, selection.method = "vst", nfeatures = 3000)
-  gene_id = VariableFeatures(data_object)
-  if(all(gene_id %in% colnames(lg_X))){
-  }else{
-    gene_id = gene_id[-which(!(gene_id %in% colnames(lg_X)))]
-  }
-  
-  message("## Finally choose ", length(gene_id), " genes for MGGE...")
-
-  lg_X = lg_X[, gene_id]
-  rm(X, data_object)
-  
-
-  
-  ##* cluster number estimation
-  #K = cluster_number_estimation(lg_X)
-  K = length(unique(gt))
-  message("## Estimated cluster number:", K, "\n")
-  
-  
-  ## dimension reduction(npc) calculation
-  npc = npc_cal(as.matrix(lg_X), K, var_thre=0.8)
-  message("## Caluculated dim reduction npc:", npc, "\n")
-  
-  
-  ## cluster update
-  # clustering update, 200 iteration by default
-  #* stop update when Jbefore < Jafter
-  files = list.files("./scImpute/", pattern="*.R")
-  sapply(paste0("./scImpute/", files), source)
-  
-
-  #** 3\test of gt local_sim
-  if(FALSE){
-    mask = unique(gt)
-    F = sapply(1:K, function(i){
-      F = rep(0, N)
-      id = which(gt == mask[i])
-      F[id] = 1
-      return(F)
-    })
-    S = F %*% t(F)    
-  }
-  
-  
-  local_sim = readRDS("../cmp_analysis/result/res1.rds")
-  local_sim = lapply(local_sim[[i]], function(j){
-    if(class(j) == "list"){
-      return(j$clust)
-    }
-  })
-  local_sim$res_RaceID = NULL
-  local_sim$res_dropclust = NULL
-  
-  
-  #* 9\ ensemble on diff gene_dim
-  res <- var_update(lg_X, K, npc, local_sim, lambda1=2, lambda2=2, 
-                    iteration=1, clust_iteration=300, imp_iteration=3000, 
-                    res_save=FALSE)
-  
+i = 2
+for(sigmac in c(0.5, 1, 2 ,3, 4)){
+  for(sigmag in c(0.5, 1, 2 ,3, 4)){
+    try({
+    s = Sys.time()
     
-  clust = res$cluster
-  nmi = NMI(clust, gt)
-  ari = ARI(clust, gt)
-  res$nmi = nmi
-  res$ari = ari
-  message("## NMI: ", nmi, "   ARI: ", ari, "\n")
+    X = readRDS(paste0(data_path, datas[i]))
+    gt = X$gt
+    X = X$expr
+    N = nrow(X)
+    P = ncol(X)
+    message(paste0("## Loading raw data of ",N , "*", P, " and labels...\n"))
+    
+    
+    ## gene filter & normalization
+    message("## Data nomalization and log-transformation...\n")
+    lg_X = data_normalize(X, N, P, gt, mu_probs=0.5, cv_probs=0.1*round(log10(N)))   #* 0.2 by default with gene select
+    gt = lg_X$gt
+    lg_X = as.matrix(lg_X$count_hv)
+    
+    #* 14\ no gene selection
+    if(FALSE){
+      #lg_X = informative_gene_selection(lg_X, delta=0.7)
+      data_object = CreateSeuratObject(counts = Matrix(t(lg_X), sparse=TRUE),
+                                       project = "MGGE", min.cells = 3)
+      data_object = NormalizeData(data_object, normalization.method = "LogNormalize", scale.factor = 10000)
+      ## gene selection
+      #** 2\select about thousand genes
+      data_object = FindVariableFeatures(data_object, selection.method = "vst", nfeatures = 3000)
+      gene_id = VariableFeatures(data_object)
+      if(all(gene_id %in% colnames(lg_X))){
+      }else{
+        gene_id = gene_id[-which(!(gene_id %in% colnames(lg_X)))]
+      }
+      
+      message("## Finally choose ", length(gene_id), " genes for MGGE...")
+      
+      lg_X = lg_X[, gene_id]
+      rm(X, data_object)
+    }
   
+
+    ##* cluster number estimation
+    #K = cluster_number_estimation(lg_X)
+    K = length(unique(gt))
+    message("## Estimated cluster number:", K, "\n")
+    
+    
+    ## dimension reduction(npc) calculation
+    npc = npc_cal(as.matrix(lg_X), K, var_thre=0.8)
+    message("## Caluculated dim reduction npc:", npc, "\n")
+    
+    
+    ## cluster update
+    # clustering update, 200 iteration by default
+    #* stop update when Jbefore < Jafter
+    files = list.files("./scImpute/", pattern="*.R")
+    sapply(paste0("./scImpute/", files), source)
+    
   
-  time = Sys.time() - s
-  message("## Consume", time, "seconds.\n")
-  
-  # save res
-  output = strsplit(datas[i], split="/")[[1]][1]
-  
-  saveRDS(res, paste0("result/locsim/", output, '.rds'))
-  })
+    #** 3\test of gt local_sim
+    if(FALSE){
+      mask = unique(gt)
+      F = sapply(1:K, function(i){
+        F = rep(0, N)
+        id = which(gt == mask[i])
+        F[id] = 1
+        return(F)
+      })
+      S = F %*% t(F)    
+    }
+    
+    
+    #* construct W & neighbors
+    # NN = 5 for 10^2, else 20 for 1o^3
+    S = readMat("dataset/Deng_W.mat")
+    S = S$W
+    L = as.matrix(diag(colSums(S)) - S)
+    local_sim = list()
+    local_sim[[1]] = S
+    H = eigen(L)$vectors
+    H = H[, (N-K+1):N]
+    #* 4\guide clust for imp
+    cluster = kmeans(H, K)$cluster
+    
+    #* 9\ ensemble on diff gene_dim
+    #res <- var_update(lg_X, K, npc, local_sim, lambda1=2, lambda2=10, 
+    #                  iteration=1, clust_iteration=300, imp_iteration=3000, 
+    #                  res_save=FALSE)
+    res <- var_update(lg_X, K, npc, local_sim, cluster, sigmac=sigmac, sigmag=sigmag, lambda1=2, lambda2=10^5, 
+                      iteration=1, clust_iteration=300, imp_iteration=3000, 
+                      res_save=FALSE)
+    
+    
+    clust = res$cluster
+    nmi = NMI(clust, gt)
+    ari = ARI(clust, gt)
+    res$nmi = nmi
+    res$ari = ari
+    message("## NMI: ", nmi, "   ARI: ", ari, "\n")
+    
+    
+    time = Sys.time() - s
+    message("## Consume", time, "seconds.\n")
+    
+    # save res
+    output = strsplit(datas[i], split="/")[[1]][1]
+    
+    saveRDS(res, paste0("result/weighted/", output, 'c_', sigmac, '_g_', sigmag,'.rds'))
+    })
+  }
 }

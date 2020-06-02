@@ -6,13 +6,13 @@ library(penalized)
 #* modified for rare cluster
 # filter genes with low potentiality being a dropout gene
 find_va_genes = function(parslist, subcount){
-  point = log2(1.01)
+  point = log10(1.01)
   valid_genes = which( (colSums(subcount) > point * nrow(subcount)) &
                          complete.cases(t(parslist) ))
   if(length(valid_genes) == 0) return(valid_genes)
   # find out genes that violate assumption
   mu = parslist["mu", ]
-  sgene1 = which(mu <= log2(1+1.01))    #% exclude less mean value
+  sgene1 = which(mu <= log10(1+1.01))    #% exclude less mean value
   # sgene2 = which(mu <= log2(10+1.01) & mu - parslist[,5] > log2(1.01))
   
   dcheck1 = dgamma(mu+1, shape = parslist["alpha", ], rate = parslist["beta", ])
@@ -99,7 +99,7 @@ imputation_wlabel_model = function(count, cluster, neighbors, point, drop_thre, 
     # fit_model by_gene
     cells = which(cluster == cc)
     pars_bycell = get_mix_parameters(count = count[cells, , drop = FALSE], 
-                       point = log2(1.01), ncores = ncores)
+                       point = log10(1.01), ncores = ncores)
     if(length(cells) <= 1){ next }   #* rare cluster
     cat("### searching for valid genes ...\n")
     valid_genes = find_va_genes(pars_bycell, subcount = count[cells, ])  #* diff clust may have diff va_genes
@@ -201,6 +201,7 @@ imputation_wlabel_model = function(count, cluster, neighbors, point, drop_thre, 
     count_imp[cells, valid_genes] = clust_y
     droprate[cells, valid_genes] = clust_droprate
   }
+  
   #stopCluster(cl)
   count_imp[count_imp < point] = point
   # local-sim uniation

@@ -2,7 +2,7 @@
 # X should be a N*P raw-count data matrix
 
 data_normalize <- function(X, N, P, gt, mu_probs=0.4, cv_probs=0.3){
-  
+
   totalCounts_by_gene = colSums(X)
   totalCounts_by_cell = rowSums(X)
   cell_nzero = setdiff(1:N, which(totalCounts_by_cell==0))
@@ -20,10 +20,15 @@ data_normalize <- function(X, N, P, gt, mu_probs=0.4, cv_probs=0.3){
   }
   
   X = sweep(X, MARGIN = 1, 10^6/totalCounts_by_cell, FUN = "*")
+  # normalize genes
+  norm_gene = sqrt(colSums(X^2))
+  norm_gene = t(matrix(norm_gene, length(norm_gene), N))
+  X = X / norm_gene
+  
   if (min(X) < 0) {
     stop("smallest read count cannot be negative!")
   }
-  lg_X = log(X + 1)
+  lg_X = log10(X + 1)
   # lg_X = log(X + 1.01)
   
   
