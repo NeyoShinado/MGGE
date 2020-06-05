@@ -12,11 +12,26 @@ construct_locsim <- function(X, droprate, NN, K){
   }
   
   # normalize data
-  browser()
   cell_norms = matrix(sqrt(rowSums(X^2)), N, P)
   X = X / cell_norms
+  # normalize genes not necessary
+  #norm_gene = sqrt(colSums(X^2))
+  #norm_gene = t(matrix(norm_gene, length(norm_gene), N))
+  #X = X / norm_gene
   
   S = X %*% t(X)
+  
+  neighbors = list()
+  neighbors$neighbors = t(sapply(1:N, function(i){
+    nei = rep(0, N)
+    nei[order(S[i, ], decreasing=TRUE)[1:(k+1)]] = 1
+    return(nei)
+  }))
+  
+  neighbors$dist_list = lapply(1:N, function(i){
+    S[i, ]
+  })
+  
   S = t(sapply(1:N, function(i){
     res = rep(0, N)
     id = order(S[i, ], decreasing=TRUE)[1:(NN+1)]
@@ -81,8 +96,9 @@ construct_locsim <- function(X, droprate, NN, K){
     local_sim = (local_sim + t(local_sim)) / 2
     
   }
-
-  return(local_sim)
+  
+  res = list(S=S, neighbors=neighbors)
+  return(res)
 }
 
 

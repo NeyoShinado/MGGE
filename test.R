@@ -7,9 +7,10 @@ source("constructW.R")
 source("NormalizeUV.R")
 source("data_normalize.R")
 source("imputing_update.R")
-source("construct_locsim.R")
-source("localsim_integrated_update.R")
-source("informative_gene_selection.R")
+source("PDGE_update.R")
+#source("construct_locsim.R")
+#source("localsim_integrated_update.R")
+#source("informative_gene_selection.R")
 
 
 library(Matrix)
@@ -23,9 +24,12 @@ library(R.matlab)
 datas = c("Biase/Biase.rds", "Deng_GSE45719/mouse_embryo.rds", "Zeisel/Zeisel.rds", 
           "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds")
 data_path = "E:/Project/dataset/Bioinformatics/scRNA/Selected data/"
-i = 2
-for(sigmac in c(0.5, 1, 2 ,3, 4)){
-  for(sigmag in c(0.5, 1, 2 ,3, 4)){
+#for(i in c(1, 4:5)){
+#for(sigmac in c(0.5, 1, 2 ,3, 4)){
+#  for(sigmag in c(0.5, 1, 2 ,3, 4)){
+i = 1
+sigmac = 1
+sigmag = 1
     try({
     s = Sys.time()
     
@@ -39,7 +43,7 @@ for(sigmac in c(0.5, 1, 2 ,3, 4)){
     
     ## gene filter & normalization
     message("## Data nomalization and log-transformation...\n")
-    lg_X = data_normalize(X, N, P, gt, mu_probs=0.5, cv_probs=0.1*round(log10(N)))   #* 0.2 by default with gene select
+    lg_X = data_normalize(X, N, P, gt, mu_probs=0.5, cv_probs=0.2)   #* 0.2 by default with gene select  0.1*round(log10(N))
     gt = lg_X$gt
     lg_X = as.matrix(lg_X$count_hv)
     
@@ -97,32 +101,34 @@ for(sigmac in c(0.5, 1, 2 ,3, 4)){
     
     
     #* construct W & neighbors
-    # NN = 5 for 10^2, else 20 for 1o^3
-    S = readMat("dataset/Deng_W.mat")
-    S = S$W
-    L = as.matrix(diag(colSums(S)) - S)
-    local_sim = list()
-    local_sim[[1]] = S
-    H = eigen(L)$vectors
-    H = H[, (N-K+1):N]
     #* 4\guide clust for imp
-    cluster = kmeans(H, K)$cluster
+    # NN = 5 for 10^2, else 20 for 1o^3
+    #S = readMat("dataset/Deng_W.mat")
+    #S = S$W
+    res = constructW(lg_X, 20, K)
+    S = res$S
+    neighbors = res$neighbors
+    rm(res)
+    L = diag(colSums(S)) - S
+    H = eigen(L)$vectors
+    H = H[, (N-K):(N-1)]
+    cluster = kmeans(H, K, nstart=20)$cluster
     
     #* 9\ ensemble on diff gene_dim
     #res <- var_update(lg_X, K, npc, local_sim, lambda1=2, lambda2=10, 
     #                  iteration=1, clust_iteration=300, imp_iteration=3000, 
     #                  res_save=FALSE)
-    res <- var_update(lg_X, K, npc, local_sim, cluster, sigmac=sigmac, sigmag=sigmag, lambda1=2, lambda2=10^5, 
-                      iteration=1, clust_iteration=300, imp_iteration=3000, 
+    res <- var_update(lg_X, K, npc, S, neighbors, cluster, gt, sigmac=sigmac, sigmag=sigmag, lambda1=2, lambda2=2, 
+                      iteration=1, clust_iteration=3, imp_iteration=3, 
                       res_save=FALSE)
     
     
-    clust = res$cluster
-    nmi = NMI(clust, gt)
-    ari = ARI(clust, gt)
-    res$nmi = nmi
-    res$ari = ari
-    message("## NMI: ", nmi, "   ARI: ", ari, "\n")
+    #clust = res$cluster
+    #nmi = NMI(clust, gt)
+    #ari = ARI(clust, gt)
+    #res$nmi = nmi
+    #res$ari = ari
+    #message("## NMI: ", nmi, "   ARI: ", ari, "\n")
     
     
     time = Sys.time() - s
@@ -131,7 +137,8 @@ for(sigmac in c(0.5, 1, 2 ,3, 4)){
     # save res
     output = strsplit(datas[i], split="/")[[1]][1]
     
-    saveRDS(res, paste0("result/weighted/", output, 'c_', sigmac, '_g_', sigmag,'.rds'))
+    saveRDS(res, paste0("result/PDGE/", output, 'c_', sigmac, '_g_', sigmag,'.rds'))
     })
-  }
-}
+#  }
+#}
+#}

@@ -7,8 +7,8 @@ library(penalized)
 # filter genes with low potentiality being a dropout gene
 find_va_genes = function(parslist, subcount){
   point = log10(1.01)
-  valid_genes = which( (colSums(subcount) > point * nrow(subcount)) &
-                         complete.cases(t(parslist) ))
+  valid_genes = which((colSums(subcount) > point * nrow(subcount)) &
+                         complete.cases(t(parslist)))
   if(length(valid_genes) == 0) return(valid_genes)
   # find out genes that violate assumption
   mu = parslist["mu", ]

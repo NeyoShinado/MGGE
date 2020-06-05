@@ -1,76 +1,117 @@
-signif(norm(D %*% (lg_X - W %*% V), 'F')^2 , digits = 2)
-signif(lambda1 * sum(diag(t(W) %*% LH %*% W)), digits = 3)
-signif(lambda2 * sum(diag(t(H) %*% L %*% H)), digits=3)
+### NMI
+clust = specc(as.matrix(res$W), 12)@.Data
+nmi = NMI(clust, gt)
 
 
-nmi = sapply(0:20, function(i){
-  clust_res = readRDS(paste0("result/clust_res/", i, "th_clustres.rds"))
-  NMI(clust_res$cluster, gt)
+L = diag(colSums(S)) - S
+clust = specc(L, K)@.Data
+NMI(clust, gt)
+
+
+H = eigen(L)$vectors
+H = H[, (N-K):(N-1)]
+clust = kmeans(H, K)$cluster
+NMI(clust, gt)
+
+
+
+
+# droprate preprose
+step = 4
+map = c(0, c(1:step) * (1/step))
+droprate = sapply(1:dim(droprate)[2], function(i){
+  temp = droprate[, i]
+  for(j in 2:step){
+    temp[which(temp <= map[j]) && temp > map[j-1]] = map[j]
+  }
+  return(temp)
 })
 
-nzero = sapply(1:N, function(i){
-  length(which(clust_res$H[i, ] == 0))
+
+### droprate based on group
+map = unique(gt)
+group_id = lapply(1:length(map), function(i){
+  res = which(gt == map[i])
+  return(res)
 })
-hist(nzero)
-
-
-### loading dataset
-setwd("E:/Project/Paper_debug/Clustering algorithm/MGGE/")
-data = readRDS("./dataset/mouse_embryo.rds")
-gt = data$label[which(data$singlecell)]
-data = data$reads[which(data$singlecell), ]
-
-library(SingleCellExperiment)
-library(SC3)
-library(scater)
-
-clust_res = sapply(1:9, function(i){
-  clust = readRDS(paste0("result/clust_res/", i, "th_clustres.rds"))$J_set
-  return(J_set)
-  #droprate = rowSums(res$droprate)
-  #D = (P - droprate) / P   #* dropout weight
+group_droprate = sapply(group_id, function(i){
+  clust_droprate = colSums(droprate[i, ] / length(i))
+  return(clust_droprate)
 })
-J_set = as.vector(J_set)
-plot(J_set[2:450])
+#group_droprate = as.data.frame(group_droprate)
+#group_droprate = cbind(group_droprate, data.frame(group=map))
+
+# visualize
+#test = melt(group_droprate, ID = colnames(group_droprate)[1:(ncol(group_droprate)-1)], group_id="group")
+#ggplot(test, aes(variable, value), group = group) + geom_line()
+
+sort_geneid = order(group_droprate[, 1], decreasing=TRUE)
+for(i in 1:length(map)){
+#  png(paste0("result/figure/gene mean drop by cluster/gene mean droprate of cluster ", map[i], ".png"), width=600, height=600)
+  dev.new()
+  plot(group_droprate[sort_geneid, i], main=paste0("gene\'s mean droprate of cluster ", map[i]),
+       xlab = paste0("gene\'s mean droprate"), ylab = paste0("sorted gene index of cluster ", map[1]))
+#  dev.off()
+}
 
 
-clust = list()
-for(lambda1 in 10^seq(-3, 5, 2)){
-  for(lambda2 in 10^seq(-4, -2)){
-    out_dir = paste0("result/lambda_", lambda1, "_", lambda2)
-    clust[[paste0(lambda1, "_", lambda2)]] = sapply(1:10, function(i){
-      res = readRDS(paste0(out_dir, "/clust_res/", i, "th_clustres.rds"))
-      cluster = res$cluster
-      nmi = NMI(cluster, gt)
-      return(nmi=nmi)
+
+
+### cell's droprate based on group
+Nsp = 2
+group = 1
+sample_id = sample(group_id[[group]], Nsp, replace=FALSE)
+sort_geneid = order(group_droprate[, 2], decreasing=TRUE)
+for(i in 1:Nsp){
+  if(i == 1){
+    #png(paste0("result/figure/cell drop by cluster/mean droprate of cluster ", map[group], ".png"), width=600, height=600)
+    dev.new()
+    plot(group_droprate[sort_geneid, group], main=paste0("mean droprate of cluster ", map[group], " -- index based on cluster ", map[1]),
+         xlab = paste0("sorted gene index of cluster ", map[1]), ylab = paste0("mean droprate of cluster ", map[group]))
+    #dev.off()
+  }
+  
+  #png(paste0("result/figure/cell drop by cluster/cell droprate of cell ", i, " from cluster ", map[group], ".png"), width=600, height=600)
+  dev.new()
+  plot(droprate[sample_id[i], sort_geneid], main=paste0("droprate of cell ", i, " from cluster ", map[group]),
+       xlab = paste0("sorted gene index of cluster ", map[1]), ylab = paste0("droprate of cell ", i, " from cluster ", map[group]))
+  #dev.off()
+}
+
+
+
+
+### reading weighted res
+nmi = matrix(0, 5, 5)
+rownames(nmi) = as.character(c(.5, 1, 2, 3, 4))
+colnames(nmi) = as.character(c(.5, 1, 2, 3, 4))
+
+for(sigmac in c(.5, 1, 2, 3, 4)){
+  for(sigmag in c(.5, 1, 2, 3, 4)){
+    try({
+      res = readRDS(paste0("result/weighted/mouse2c_", sigmac, '_g_', sigmag,'.rds'))
+      res = res$nmi[301, 1]
+      nmi[as.character(sigmac), as.character(sigmag)] = res
     })
   }
 }
 
 
-J = list()
-for(lambda1 in 10^seq(-3, 5, 2)){
-  for(lambda2 in 10^seq(-4, -2)){
-    out_dir = paste0("result/lambda_", lambda1, "_", lambda2)
-    J[[paste0(lambda1, "_", lambda2)]] = as.vector(sapply(1:10, function(i){
-      res = readRDS(paste0(out_dir, "/clust_res/", i, "th_clustres.rds"))
-      J = res$J_set
-      return(J)
-    }))
-  }
-}
-
-
-nmi = sapply(1:5, function(i){
-  cluster = kmeans(as.matrix(lg_X), 12, iter.max = 1000)$cluster
-  nmi = NMI(cluster, gt)
-  return(nmi)
-})
-
-
-files = list.files("result/", pattern="lambda_*")
-nmi = lapply(files, function(i){
-  try({cluster <- readRDS(paste0("result/", i, "/MGGE_res.rds"))$cluster
-  nmi<- NMI(cluster, gt)
-  return(nmi)})
-})
+### visualize
+dev.new()
+plot(res$lambda1)
+dev.new()
+plot(res$lambda2)
+dev.new()
+plot(res$J_HE)
+dev.new()
+plot(res$J_LE)
+dev.new()
+plot(res$nmi[,1])
+title("nmi_H")
+dev.new()
+plot(res$nmi[,2])
+title("nmi_WL")
+dev.new()
+plot(res$nmi[,3])
+title("nmi_W_sp")

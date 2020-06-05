@@ -20,10 +20,7 @@ data_normalize <- function(X, N, P, gt, mu_probs=0.4, cv_probs=0.3){
   }
   
   X = sweep(X, MARGIN = 1, 10^6/totalCounts_by_cell, FUN = "*")
-  # normalize genes
-  norm_gene = sqrt(colSums(X^2))
-  norm_gene = t(matrix(norm_gene, length(norm_gene), N))
-  X = X / norm_gene
+
   
   if (min(X) < 0) {
     stop("smallest read count cannot be negative!")
@@ -41,14 +38,15 @@ data_normalize <- function(X, N, P, gt, mu_probs=0.4, cv_probs=0.3){
   sd[is.na(sd)] = 0
   cv = sd/mu
   cv[is.na(cv)] = 0
+
   # sum(mu >= 1 & cv >= quantile(cv, 0.25), na.rm = TRUE)
   high_var_genes = which(mu >= quantile(mu, mu_probs) & cv >= quantile(cv, cv_probs))
   if(length(high_var_genes) < 500){ 
     high_var_genes = 1:ncol(lg_X)
   }
   count_hv = lg_X[, high_var_genes]
+
   return(list(count_hv=count_hv, gt=gt))
-  
   
 }
 
